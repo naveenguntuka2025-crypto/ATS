@@ -1,0 +1,72 @@
+# Render Blueprint. Deploy with: connect this repo on Render -> "New Blueprint
+# Instance" -> it reads this file and creates all four resources below wired
+# together automatically.
+#
+# Plans below use Render's free tier so you can deploy and try this at zero
+# cost. Two things to know about the free tier before going live for real:
+#   - Free Postgres databases are deleted 30 days after creation. For
+#     anything beyond a trial, change the database's `plan` to a paid tier
+#     (e.g. "0.1c-256mb") in the Render dashboard or here.
+#   - Free web services spin down after 15 minutes of no traffic and take
+#     ~30-60s to wake back up on the next request. Change `ats-web`'s plan to
+#     a paid tier (e.g. "0.5c-512mb") to keep it always-on.
+# Valid plan values (Render's current compute-unit naming): "free",
+# "0.5c-512mb", "1c-2g", "2c-4g", ... — see https://render.com/docs/blueprint-spec.
+
+databases:
+  - name: ats-postgres
+    plan: free
+    databaseName: ats_app
+    user: ats_app
+
+services:
+  # Managed Redis-compatible Key Value store backing the BullMQ mass-email queue.
+  - type: keyvalue
+    name: ats-redis
+    plan: free
+    ipAllowList: [] # private network only — not reachable from outside Render
+
+  # Next.js web app.
+  - type: web
+    name: ats-web
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run db:push && npm run build
+    startCommand: npm run start -- -p $PORT
+    healthCheckPath: /login
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ats-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ats-redis
+          property: connectionString
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+
+  # Mass-email background worker — separate process/service, same DB + Redis.
+  # Never runs synchronously inside a web request; drains the BullMQ queue at
+  # a throttled rate (see workers/email-worker.ts and lib/queue/mail-queue.ts).
+  - type: worker
+    name: ats-email-worker
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run worker:email
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ats-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ats-redis
+          property: connectionString
+      - key: NODE_ENV
+        value: production
