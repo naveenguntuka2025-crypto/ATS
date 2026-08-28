@@ -3,7 +3,7 @@ import { jwtVerify } from "jose";
 
 const secretString = process.env.AUTH_SECRET || "dev-only-insecure-secret-change-me";
 const SECRET = new TextEncoder().encode(secretString);
-const PUBLIC_PATHS = ["/login", "/api/auth/login"];
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
